@@ -15,6 +15,8 @@ export default function Home() {
   const [isGeneratedCode, setIsGeneratedCode] = useState(false);
   const [sessionExists, setSessionExists] = useState(false);
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
+  const [messages, setMessages] = useState<string[]>([]);
+  const [currentMessage, setCurrentMessage] = useState('');
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -26,6 +28,8 @@ export default function Home() {
       setIsInChat(true);
       setChatCode(code);
       setChatUuid(uuid);
+      const username = generateUsername();
+      setMessages([`${username} joined the chat`]);
     }
   }, [searchParams]);
 
@@ -75,6 +79,11 @@ export default function Home() {
     return code;
   };
 
+  const generateUsername = () => {
+    const numbers = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    return `AnonymousBlahaj${numbers}`;
+  };
+
   const handleCreateChat = async () => {
     currentTimeouts.forEach(timeout => clearTimeout(timeout));
     setCurrentTimeouts([]);
@@ -92,7 +101,11 @@ export default function Home() {
         body: JSON.stringify({ code, peerUuid: userUuid }),
       });
 
-      if (!response.ok) {
+      if (response.ok) {
+        const username = generateUsername();
+        setMessages([`${username} joined the chat`]);
+        router.push(`/?code=${code}&uuid=${userUuid}`);
+      } else {
         setIsGeneratedCode(false);
       }
     } catch (error) {
@@ -114,12 +127,22 @@ export default function Home() {
     setCurrentTimeouts(newTimeouts);
   };
 
+  const handleSendMessage = () => {
+    if (currentMessage.trim()) {
+      const username = generateUsername();
+      setMessages(prev => [...prev, `${username}: ${currentMessage.trim()}`]);
+      setCurrentMessage('');
+    }
+  };
+
   const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && sessionCode.length === 4 && (isGeneratedCode || !hasCheckedSession || sessionExists) && !(sessionCode.length === 4 && !isGeneratedCode && hasCheckedSession && !sessionExists)) {
       const response = await fetch(`/api/sessions?code=${sessionCode}`);
       const data = await response.json();
 
       if (data.exists) {
+        const username = generateUsername();
+        setMessages([`${username} joined the chat`]);
         router.push(`/?code=${sessionCode}&uuid=${data.peer_uuid}`);
       } else {
         const createResponse = await fetch('/api/sessions', {
@@ -131,6 +154,8 @@ export default function Home() {
         });
 
         if (createResponse.ok) {
+          const username = generateUsername();
+          setMessages([`${username} joined the chat`]);
           router.push(`/?code=${sessionCode}&uuid=${userUuid}`);
         }
       }
@@ -161,7 +186,38 @@ export default function Home() {
           </button>
         </div>
         <div className="flex items-center justify-center h-screen">
-          <div className="w-[48rem] h-[37.5rem] border border-white/20 rounded-lg bg-transparent"></div>
+          <div className="w-[48rem] h-[37.5rem] border border-white/20 rounded-lg bg-transparent flex flex-col">
+            <div className="flex-1 p-4 overflow-y-auto">
+              {messages.map((message, index) => (
+                <div key={index} className="text-white/80 text-sm mb-2 font-mono">
+                  {message}
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t border-white/20">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={currentMessage}
+                  onChange={(e) => setCurrentMessage(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder="Type a message..."
+                  className="flex-1 px-3 py-2 bg-transparent border border-white/20 rounded-md text-white placeholder-white/50 focus:border-white/60 focus:outline-none transition-colors duration-200"
+                />
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!currentMessage.trim()}
+                  className="px-4 py-2 bg-white/20 hover:bg-white/30 disabled:bg-white/10 disabled:opacity-50 text-white rounded-md transition-colors duration-200 font-medium"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
