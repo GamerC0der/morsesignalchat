@@ -9,7 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/peerjs": "^0.0.30",
+    "better-sqlite3": "^12.4.1",
+    "fs": "^0.0.1-security",
     "next": "15.5.5",
     "peerjs": "^1.5.5",
     "react": "19.1.0",
