@@ -1,10 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
+import Peer from 'peerjs';
 
 export default function Home() {
+  const generateUsername = () => {
+    const numbers = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    return `AnonymousBlahaj${numbers}`;
+  };
+
   const [sessionCode, setSessionCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [currentTimeouts, setCurrentTimeouts] = useState<NodeJS.Timeout[]>([]);
@@ -17,8 +23,121 @@ export default function Home() {
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
   const [messages, setMessages] = useState<string[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
+  const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
+  const [username] = useState(() => generateUsername());
+
+  const peerRef = useRef<any>(null);
+  const connectionsRef = useRef<Map<string, any>>(new Map());
+
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const initializePeerJS = async (sessionCode: string, isHost: boolean) => {
+    cleanupConnections();
+
+    const peer = new (Peer as any)(isHost ? sessionCode : undefined);
+
+    peerRef.current = peer;
+
+    peer.on('open', (id: any) => {
+      if (!isHost) {
+        const conn = peer.connect(sessionCode);
+        setupConnection(conn);
+      }
+    });
+
+    peer.on('connection', (conn: any) => {
+      setupConnection(conn);
+    });
+
+    peer.on('error', (err: any) => {});
+
+    const setupConnection = (conn: any) => {
+      connectionsRef.current.set(conn.peer, conn);
+
+      conn.on('open', () => {
+        setConnectedPeers(prev => [...prev, conn.peer]);
+
+        sendDataToPeer(conn.peer, {
+          type: 'join',
+          username: username,
+          peerId: userUuid
+        });
+      });
+
+      conn.on('data', (data: any) => {
+        try {
+          const message = JSON.parse(data as string);
+          handlePeerMessage(message);
+        } catch (error) {
+          console.error('Failed to parse message:', error);
+        }
+      });
+
+      conn.on('close', () => {
+        console.log('Connection closed with:', conn.peer);
+        setConnectedPeers(prev => prev.filter(p => p !== conn.peer));
+        connectionsRef.current.delete(conn.peer);
+      });
+
+      conn.on('error', (err: any) => {
+        console.error('Connection error:', err);
+      });
+    };
+  };
+
+  const cleanupConnections = () => {
+    connectionsRef.current.forEach((conn, peerId) => {
+      if (conn.open) {
+        sendDataToPeer(peerId, {
+          type: 'leave',
+          username: username,
+          peerId: userUuid
+        });
+      }
+      conn.close();
+    });
+
+    connectionsRef.current.clear();
+    setConnectedPeers([]);
+
+    if (peerRef.current) {
+      peerRef.current.destroy();
+      peerRef.current = null;
+    }
+  };
+
+  const handlePeerMessage = (data: any) => {
+    if (data.type === 'join') {
+      if (data.peerId !== userUuid) {
+        setMessages(prev => [...prev, `${data.username} joined the chat`]);
+      }
+    } else if (data.type === 'leave') {
+      if (data.peerId !== userUuid) {
+        setMessages(prev => [...prev, `${data.username} left the chat`]);
+      }
+    } else if (data.type === 'message') {
+      if (data.peerId !== userUuid) {
+        setMessages(prev => [...prev, `${data.username}: ${data.message}`]);
+        broadcastMessage(data);
+      }
+    }
+  };
+
+  const sendDataToPeer = (peerId: string, data: any) => {
+    const conn = connectionsRef.current.get(peerId);
+    if (conn && conn.open) {
+      conn.send(JSON.stringify(data));
+    }
+  };
+
+  const broadcastMessage = (message: any) => {
+    connectionsRef.current.forEach((conn, peerId) => {
+      if (conn.open) {
+        conn.send(JSON.stringify(message));
+      }
+    });
+  };
 
   useEffect(() => {
     const code = searchParams.get('code');
@@ -28,10 +147,17 @@ export default function Home() {
       setIsInChat(true);
       setChatCode(code);
       setChatUuid(uuid);
-      const username = generateUsername();
       setMessages([`${username} joined the chat`]);
+      const isHost = uuid === userUuid;
+      initializePeerJS(code, isHost);
     }
-  }, [searchParams]);
+  }, [searchParams, username]);
+
+  useEffect(() => {
+    return () => {
+      cleanupConnections();
+    };
+  }, [username]);
 
   useEffect(() => {
     const checkSessionExists = async () => {
@@ -79,10 +205,6 @@ export default function Home() {
     return code;
   };
 
-  const generateUsername = () => {
-    const numbers = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `AnonymousBlahaj${numbers}`;
-  };
 
   const handleCreateChat = async () => {
     currentTimeouts.forEach(timeout => clearTimeout(timeout));
@@ -102,14 +224,15 @@ export default function Home() {
       });
 
       if (response.ok) {
-        const username = generateUsername();
         setMessages([`${username} joined the chat`]);
         router.push(`/?code=${code}&uuid=${userUuid}`);
       } else {
         setIsGeneratedCode(false);
+        setIsCreating(false);
       }
     } catch (error) {
       setIsGeneratedCode(false);
+      setIsCreating(false);
     }
 
     const newTimeouts: NodeJS.Timeout[] = [];
@@ -129,19 +252,27 @@ export default function Home() {
 
   const handleSendMessage = () => {
     if (currentMessage.trim()) {
-      const username = generateUsername();
+      // Add to local messages
       setMessages(prev => [...prev, `${username}: ${currentMessage.trim()}`]);
+
+      // Broadcast to all connected peers
+      broadcastMessage({
+        type: 'message',
+        username: username,
+        peerId: userUuid,
+        message: currentMessage.trim()
+      });
+
       setCurrentMessage('');
     }
   };
 
   const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && sessionCode.length === 4 && (isGeneratedCode || !hasCheckedSession || sessionExists) && !(sessionCode.length === 4 && !isGeneratedCode && hasCheckedSession && !sessionExists)) {
+    if (e.key === 'Enter' && sessionCode.length === 4) {
       const response = await fetch(`/api/sessions?code=${sessionCode}`);
       const data = await response.json();
 
       if (data.exists) {
-        const username = generateUsername();
         setMessages([`${username} joined the chat`]);
         router.push(`/?code=${sessionCode}&uuid=${data.peer_uuid}`);
       } else {
@@ -154,7 +285,6 @@ export default function Home() {
         });
 
         if (createResponse.ok) {
-          const username = generateUsername();
           setMessages([`${username} joined the chat`]);
           router.push(`/?code=${sessionCode}&uuid=${userUuid}`);
         }
@@ -171,6 +301,9 @@ export default function Home() {
         <div className="absolute top-4 right-4">
           <button
             onClick={() => {
+              // Cleanup WebRTC connections
+              cleanupConnections();
+
               setIsInChat(false);
               setChatCode('');
               setChatUuid('');
@@ -178,6 +311,7 @@ export default function Home() {
               setSessionExists(false);
               setHasCheckedSession(false);
               setSessionCode('');
+              setMessages([]);
               router.push('/');
             }}
             className="text-white/60 hover:text-white transition-colors duration-200 text-sm"
