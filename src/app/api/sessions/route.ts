@@ -9,8 +9,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing code or peerUuid' }, { status: 400 });
     }
 
-    cleanupExpiredSessions();
-    const success = createOrUpdateSession(code, peerUuid);
+    await cleanupExpiredSessions();
+    const success = await createOrUpdateSession(code, peerUuid);
 
     if (success) {
       return NextResponse.json({ success: true });
@@ -18,7 +18,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
     }
   } catch (error) {
-    console.error('Error in POST /api/sessions:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -32,8 +31,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing code parameter' }, { status: 400 });
     }
 
-    cleanupExpiredSessions();
-    const session = getSessionByCode(code);
+    await cleanupExpiredSessions();
+    const session = await getSessionByCode(code);
 
     if (session) {
       return NextResponse.json({
@@ -46,7 +45,6 @@ export async function GET(request: NextRequest) {
       });
     }
   } catch (error) {
-    console.error('Error in GET /api/sessions:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

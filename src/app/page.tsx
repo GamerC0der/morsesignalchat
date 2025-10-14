@@ -115,7 +115,7 @@ export default function Home() {
   };
 
   const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && sessionCode.length === 4 && (isGeneratedCode || !hasCheckedSession || sessionExists)) {
+    if (e.key === 'Enter' && sessionCode.length === 4 && (isGeneratedCode || !hasCheckedSession || sessionExists) && !(sessionCode.length === 4 && !isGeneratedCode && hasCheckedSession && !sessionExists)) {
       const response = await fetch(`/api/sessions?code=${sessionCode}`);
       const data = await response.json();
 
@@ -159,6 +159,9 @@ export default function Home() {
           >
             ← Back
           </button>
+        </div>
+        <div className="flex items-center justify-center h-screen">
+          <div className="w-[48rem] h-[37.5rem] border border-white/20 rounded-lg bg-transparent"></div>
         </div>
       </div>
     );

@@ -1,34 +1,27 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import mysql from 'mysql2/promise';
 
-const dbPath = path.join(process.cwd(), 'sessions.db');
-const db = new Database(dbPath);
+let connection: mysql.Connection | null = null;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
-    code TEXT PRIMARY KEY,
-    peer_uuid TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-const insertSession = db.prepare(`
-  INSERT OR REPLACE INTO sessions (code, peer_uuid, updated_at)
-  VALUES (?, ?, CURRENT_TIMESTAMP)
-`);
+async function getConnection() {
+  if (!connection) {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      throw new Error('DATABASE_URL environment variable is required');
+    }
 
-const getSession = db.prepare(`
-  SELECT * FROM sessions WHERE code = ?
-`);
+    connection = await mysql.createConnection(databaseUrl);
 
-const deleteExpiredSessions = db.prepare(`
-  DELETE FROM sessions
-  WHERE created_at < datetime('now', '-15 minutes')
-`);
-
-const getAllSessions = db.prepare(`
-  SELECT * FROM sessions ORDER BY created_at DESC
-`);
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        code VARCHAR(4) PRIMARY KEY,
+        peer_uuid VARCHAR(36) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+  }
+  return connection;
+}
 
 export interface Session {
   code: string;
@@ -37,58 +30,62 @@ export interface Session {
   updated_at: string;
 }
 
-export function createOrUpdateSession(code: string, peerUuid: string): boolean {
+export async function createOrUpdateSession(code: string, peerUuid: string): Promise<boolean> {
   try {
-    deleteExpiredSessions.run();
-    insertSession.run(code, peerUuid);
+    const conn = await getConnection();
+    await deleteExpiredSessions();
+    await conn.execute(
+      'INSERT INTO sessions (code, peer_uuid) VALUES (?, ?) ON DUPLICATE KEY UPDATE peer_uuid = VALUES(peer_uuid), updated_at = CURRENT_TIMESTAMP',
+      [code, peerUuid]
+    );
     return true;
   } catch (error) {
-    console.error('Error creating/updating session:', error);
     return false;
   }
 }
 
-export function getSessionByCode(code: string): Session | null {
+export async function getSessionByCode(code: string): Promise<Session | null> {
   try {
-    deleteExpiredSessions.run();
-    const session = getSession.get(code) as Session | undefined;
-    return session || null;
+    const conn = await getConnection();
+    await deleteExpiredSessions();
+    const [rows] = await conn.execute(
+      'SELECT * FROM sessions WHERE code = ?',
+      [code]
+    );
+    return (rows as any[])[0] || null;
   } catch (error) {
-    console.error('Error getting session:', error);
     return null;
   }
 }
 
-export function cleanupExpiredSessions(): number {
+export async function cleanupExpiredSessions(): Promise<number> {
   try {
-    const result = deleteExpiredSessions.run();
-    return result.changes;
+    const conn = await getConnection();
+    const [result] = await conn.execute(
+      "DELETE FROM sessions WHERE created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+    );
+    return (result as any).affectedRows || 0;
   } catch (error) {
-    console.error('Error cleaning up expired sessions:', error);
     return 0;
   }
 }
 
-export function getAllActiveSessions(): Session[] {
+async function deleteExpiredSessions(): Promise<void> {
+  const conn = await getConnection();
+  await conn.execute(
+    "DELETE FROM sessions WHERE created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
+  );
+}
+
+export async function getAllActiveSessions(): Promise<Session[]> {
   try {
-    deleteExpiredSessions.run();
-    return getAllSessions.all() as Session[];
+    const conn = await getConnection();
+    await deleteExpiredSessions();
+    const [rows] = await conn.execute(
+      'SELECT * FROM sessions ORDER BY created_at DESC'
+    );
+    return rows as Session[];
   } catch (error) {
-    console.error('Error getting all sessions:', error);
     return [];
   }
 }
-
-process.on('exit', () => {
-  db.close();
-});
-
-process.on('SIGINT', () => {
-  db.close();
-  process.exit();
-});
-
-process.on('SIGTERM', () => {
-  db.close();
-  process.exit();
-});
