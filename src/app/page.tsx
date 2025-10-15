@@ -74,6 +74,8 @@ export default function Home() {
   const [isMorseEnabled, setIsMorseEnabled] = useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [replyingTo, setReplyingTo] = useState<{index: number, content: string, sender: string} | null>(null);
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [autocompleteSuggestions] = useState(['/morse']);
 
   const peerRef = useRef<any>(null);
   const connectionsRef = useRef<Map<string, any>>(new Map());
@@ -342,7 +344,6 @@ export default function Home() {
       if (typeof window !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
       } else if (typeof window !== 'undefined' && document && document.execCommand) {
-        // Fallback for browsers that don't support Clipboard API
         const textArea = document.createElement('textarea');
         textArea.value = text;
         textArea.style.position = 'fixed';
@@ -494,6 +495,25 @@ export default function Home() {
                   </button>
                 </div>
               )}
+              {showAutocomplete && (
+                <div className="mb-2 bg-white/10 border border-white/20 rounded-md overflow-hidden">
+                  {autocompleteSuggestions.map((suggestion, index) => (
+                    <div
+                      key={suggestion}
+                      className="px-3 py-2 text-white/80 hover:bg-white/20 cursor-pointer transition-colors duration-200 text-sm"
+                      onClick={() => {
+                        if (suggestion === '/morse') {
+                          setIsMorseEnabled(!isMorseEnabled);
+                          setCurrentMessage('');
+                          setShowAutocomplete(false);
+                        }
+                      }}
+                    >
+                      {suggestion}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => setIsMorseEnabled(!isMorseEnabled)}
@@ -509,10 +529,22 @@ export default function Home() {
                 <input
                   type="text"
                   value={currentMessage}
-                  onChange={(e) => setCurrentMessage(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setCurrentMessage(value);
+                    setShowAutocomplete(value === '/');
+                  }}
                   onKeyPress={(e) => {
                     if (e.key === 'Enter') {
-                      handleSendMessage();
+                      if (showAutocomplete && currentMessage === '/morse') {
+                        setIsMorseEnabled(!isMorseEnabled);
+                        setCurrentMessage('');
+                        setShowAutocomplete(false);
+                      } else {
+                        handleSendMessage();
+                      }
+                    } else if (e.key === 'Escape') {
+                      setShowAutocomplete(false);
                     }
                   }}
                   placeholder="Type a message..."
