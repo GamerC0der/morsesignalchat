@@ -3,12 +3,58 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
+import { Send, Radio, Copy, Check, ArrowLeft, Reply } from 'lucide-react';
 import Peer from 'peerjs';
+
+const morseCodeMap: { [key: string]: string } = {
+  'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
+  'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
+  'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
+  'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+  'Y': '-.--', 'Z': '--..',
+  '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
+  '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.',
+  ' ': '/',
+  '.': '.-.-.-', ',': '--..--', '?': '..--..', '!': '-.-.--',
+  "'": '.----.', '/': '-..-.', '(': '-.--.', ')': '-.--.-',
+  '+': '.-.-.', '=': '-...-', '-': '-....-', ':': '---...',
+  ';': '-.-.-.', '@': '.--.-.'
+};
+
+const encodeToMorse = (text: string): string => {
+  return text.toUpperCase().split('').map(char => morseCodeMap[char] || char).join(' ');
+};
+
+const decodeFromMorse = (morse: string): string => {
+  const reverseMap: { [key: string]: string } = {};
+  Object.entries(morseCodeMap).forEach(([char, code]) => {
+    reverseMap[code] = char;
+  });
+
+  return morse.split(' ').map(code => reverseMap[code] || code).join('');
+};
+
+const isMorseCode = (text: string): boolean => {
+  const morseCodes = Object.values(morseCodeMap);
+  const words = text.split(' ');
+  return words.length > 0 && words.every(word => morseCodes.includes(word) || word === '');
+};
 
 export default function Home() {
   const generateUsername = () => {
+    const rand = Math.random() * 100;
+    let animal = 'Blahaj';
+
+    if (rand < 50) {
+      animal = 'Blahaj';
+    } else if (rand < 80) {
+      animal = 'Djungelskog';
+    } else {
+      animal = 'Blavingad';
+    }
+
     const numbers = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `AnonymousBlahaj${numbers}`;
+    return `Anonymous${animal}${numbers}`;
   };
 
   const [sessionCode, setSessionCode] = useState('');
@@ -21,10 +67,13 @@ export default function Home() {
   const [isGeneratedCode, setIsGeneratedCode] = useState(false);
   const [sessionExists, setSessionExists] = useState(false);
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
-  const [messages, setMessages] = useState<string[]>([]);
+  const [messages, setMessages] = useState<{content: string, replyTo?: {sender: string, content: string}}[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
   const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
   const [username] = useState(() => generateUsername());
+  const [isMorseEnabled, setIsMorseEnabled] = useState(false);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{index: number, content: string, sender: string} | null>(null);
 
   const peerRef = useRef<any>(null);
   const connectionsRef = useRef<Map<string, any>>(new Map());
@@ -110,16 +159,19 @@ export default function Home() {
   const handlePeerMessage = (data: any) => {
     if (data.type === 'join') {
       if (data.peerId !== userUuid) {
-        setMessages(prev => [...prev, `${data.username} joined the chat`]);
+        setMessages(prev => [...prev, { content: `${data.username} joined the chat` }]);
       }
     } else if (data.type === 'leave') {
       if (data.peerId !== userUuid) {
-        setMessages(prev => [...prev, `${data.username} left the chat`]);
+        setMessages(prev => [...prev, { content: `${data.username} left the chat` }]);
       }
     } else if (data.type === 'message') {
       if (data.peerId !== userUuid) {
-        setMessages(prev => [...prev, `${data.username}: ${data.message}`]);
-        broadcastMessage(data);
+        const newMessage = {
+          content: `${data.username}: ${data.message}`,
+          ...(data.replyTo && { replyTo: data.replyTo })
+        };
+        setMessages(prev => [...prev, newMessage]);
       }
     }
   };
@@ -144,14 +196,25 @@ export default function Home() {
     const uuid = searchParams.get('uuid');
 
     if (code && uuid) {
-      setIsInChat(true);
-      setChatCode(code);
-      setChatUuid(uuid);
-      setMessages([`${username} joined the chat`]);
-      const isHost = uuid === userUuid;
-      initializePeerJS(code, isHost);
+      fetch(`/api/sessions?code=${code}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.exists && data.peer_uuid === uuid) {
+            setIsInChat(true);
+            setChatCode(code);
+            setChatUuid(uuid);
+            setMessages([{ content: `${username} joined the chat` }]);
+            const isHost = uuid === userUuid;
+            initializePeerJS(code, isHost);
+          } else {
+            router.push('/');
+          }
+        })
+        .catch(() => {
+          router.push('/');
+        });
     }
-  }, [searchParams, username]);
+  }, [searchParams, username, router]);
 
   useEffect(() => {
     return () => {
@@ -224,7 +287,7 @@ export default function Home() {
       });
 
       if (response.ok) {
-        setMessages([`${username} joined the chat`]);
+        setMessages([{ content: `${username} joined the chat` }]);
         router.push(`/?code=${code}&uuid=${userUuid}`);
       } else {
         setIsGeneratedCode(false);
@@ -252,19 +315,63 @@ export default function Home() {
 
   const handleSendMessage = () => {
     if (currentMessage.trim()) {
-      // Add to local messages
-      setMessages(prev => [...prev, `${username}: ${currentMessage.trim()}`]);
+      const messageToSend = isMorseEnabled ? encodeToMorse(currentMessage.trim()) : currentMessage.trim();
 
-      // Broadcast to all connected peers
+      const newMessage = {
+        content: `${username}: ${messageToSend}`,
+        ...(replyingTo && { replyTo: { sender: replyingTo.sender, content: replyingTo.content } })
+      };
+
+      setMessages(prev => [...prev, newMessage]);
+
       broadcastMessage({
         type: 'message',
         username: username,
         peerId: userUuid,
-        message: currentMessage.trim()
+        message: messageToSend,
+        replyTo: replyingTo || undefined
       });
 
       setCurrentMessage('');
+      setReplyingTo(null);
     }
+  };
+
+  const copyToClipboard = async (text: string, index: number) => {
+    try {
+      if (typeof window !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (typeof window !== 'undefined' && document && document.execCommand) {
+        // Fallback for browsers that don't support Clipboard API
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.focus();
+        textArea.select();
+
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+
+        if (!successful) {
+          throw new Error('Fallback copy method failed');
+        }
+      } else {
+        throw new Error('Clipboard not supported');
+      }
+
+      setCopiedMessageIndex(index);
+      setTimeout(() => setCopiedMessageIndex(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  const editMessage = (index: number, newMessage: {content: string, replyTo?: {sender: string, content: string}}) => {
+    setMessages(prev => prev.map((msg, i) => i === index ? newMessage : msg));
   };
 
   const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -273,7 +380,7 @@ export default function Home() {
       const data = await response.json();
 
       if (data.exists) {
-        setMessages([`${username} joined the chat`]);
+        setMessages([{ content: `${username} joined the chat` }]);
         router.push(`/?code=${sessionCode}&uuid=${data.peer_uuid}`);
       } else {
         const createResponse = await fetch('/api/sessions', {
@@ -285,7 +392,7 @@ export default function Home() {
         });
 
         if (createResponse.ok) {
-          setMessages([`${username} joined the chat`]);
+          setMessages([{ content: `${username} joined the chat` }]);
           router.push(`/?code=${sessionCode}&uuid=${userUuid}`);
         }
       }
@@ -301,7 +408,6 @@ export default function Home() {
         <div className="absolute top-4 right-4">
           <button
             onClick={() => {
-              // Cleanup WebRTC connections
               cleanupConnections();
 
               setIsInChat(false);
@@ -312,24 +418,94 @@ export default function Home() {
               setHasCheckedSession(false);
               setSessionCode('');
               setMessages([]);
+              setReplyingTo(null);
               router.push('/');
             }}
-            className="text-white/60 hover:text-white transition-colors duration-200 text-sm"
+            className="text-white/60 hover:text-white transition-colors duration-200 text-sm flex items-center gap-1"
           >
-            ← Back
+            <ArrowLeft size={14} />
+            Back
           </button>
         </div>
         <div className="flex items-center justify-center h-screen">
           <div className="w-[48rem] h-[37.5rem] border border-white/20 rounded-lg bg-transparent flex flex-col">
             <div className="flex-1 p-4 overflow-y-auto">
-              {messages.map((message, index) => (
-                <div key={index} className="text-white/80 text-sm mb-2 font-mono">
-                  {message}
-                </div>
-              ))}
+              {messages.map((message, index) => {
+                const messageParts = message.content.split(': ');
+                const sender = messageParts[0];
+                const content = messageParts.slice(1).join(': ');
+
+                return (
+                  <div
+                    key={index}
+                    className="text-white/80 text-sm mb-2 font-mono relative group"
+                  >
+                    {message.replyTo && (
+                      <div className="mb-1 pl-3 border-l-2 border-white/30 text-white/50 text-xs">
+                        Replying to <span className="font-semibold">{message.replyTo.sender}</span>: {message.replyTo.content.length > 50 ? `${message.replyTo.content.substring(0, 50)}...` : message.replyTo.content}
+                      </div>
+                    )}
+                    <div>{message.content}</div>
+                    <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <button
+                          onClick={() => setReplyingTo({ index, content, sender })}
+                          className="p-1 rounded bg-white/10 hover:bg-white/20 transition-colors duration-200 text-white/60 hover:text-white"
+                          title="Reply to message"
+                        >
+                          <Reply size={12} />
+                        </button>
+                        <button
+                          onClick={() => copyToClipboard(content, index)}
+                          className="p-1 rounded bg-white/10 hover:bg-white/20 transition-colors duration-200 text-white/60 hover:text-white"
+                          title="Copy message"
+                        >
+                          {copiedMessageIndex === index ? (
+                            <Check size={12} className="text-green-400" />
+                          ) : (
+                            <Copy size={12} />
+                          )}
+                        </button>
+                        {isMorseCode(content) && (
+                          <button
+                            onClick={() => editMessage(index, { content: `${sender}: ${decodeFromMorse(content)}`, replyTo: message.replyTo })}
+                            className="p-1 rounded bg-white/10 hover:bg-white/20 transition-colors duration-200 text-white/60 hover:text-white"
+                            title="Translate from Morse code"
+                          >
+                            <Radio size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                );
+              })}
             </div>
             <div className="p-4 border-t border-white/20">
+              {replyingTo && (
+                <div className="mb-3 p-2 bg-white/5 border border-white/20 rounded-md flex items-center justify-between">
+                  <div className="text-white/70 text-sm">
+                    Replying to <span className="font-semibold text-white/90">{replyingTo.sender}</span>: {replyingTo.content.length > 60 ? `${replyingTo.content.substring(0, 60)}...` : replyingTo.content}
+                  </div>
+                  <button
+                    onClick={() => setReplyingTo(null)}
+                    className="text-white/50 hover:text-white transition-colors duration-200 text-lg leading-none"
+                    title="Cancel reply"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
               <div className="flex gap-2">
+                <button
+                  onClick={() => setIsMorseEnabled(!isMorseEnabled)}
+                  className={`px-3 py-2 border rounded-md transition-colors duration-200 flex items-center justify-center ${
+                    isMorseEnabled
+                      ? 'bg-white/30 border-white/50 text-white'
+                      : 'bg-white/10 border-white/20 text-white/60 hover:bg-white/20'
+                  }`}
+                  title={isMorseEnabled ? 'Disable Morse Code' : 'Enable Morse Code'}
+                >
+                  <Radio size={16} />
+                </button>
                 <input
                   type="text"
                   value={currentMessage}
@@ -345,9 +521,9 @@ export default function Home() {
                 <button
                   onClick={handleSendMessage}
                   disabled={!currentMessage.trim()}
-                  className="px-4 py-2 bg-white/20 hover:bg-white/30 disabled:bg-white/10 disabled:opacity-50 text-white rounded-md transition-colors duration-200 font-medium"
+                  className="px-4 py-2 bg-white/20 hover:bg-white/30 disabled:bg-white/10 disabled:opacity-50 text-white rounded-md transition-colors duration-200 font-medium flex items-center justify-center"
                 >
-                  Send
+                  <Send size={16} />
                 </button>
               </div>
             </div>
