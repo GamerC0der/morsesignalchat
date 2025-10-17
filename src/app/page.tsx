@@ -86,7 +86,7 @@ export default function Home() {
   const initializeEventSource = async (sessionCode: string) => {
     cleanupEventSource();
 
-    const es = new EventSource(`http://localhost:8000/api/events/${sessionCode}/${userUuid}`);
+    const es = new EventSource(`https://gamerc0der-http.hf.space/api/events/${sessionCode}/${userUuid}`);
 
     eventSourceRef.current = es;
 
@@ -146,7 +146,7 @@ export default function Home() {
 
   const broadcastMessage = async (message: any) => {
     try {
-      await fetch('http://localhost:8000/api/message', {
+      await fetch('https://gamerc0der-http.hf.space/api/message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ export default function Home() {
     const uuid = searchParams.get('uuid');
 
     if (code && uuid) {
-      fetch(`http://localhost:8000/api/session/${code}`)
+      fetch(`https://gamerc0der-http.hf.space/api/session/${code}`)
         .then(response => response.json())
         .then(data => {
           if (data.exists) {
@@ -195,7 +195,7 @@ export default function Home() {
     const checkSessionExists = async () => {
       if (sessionCode.length === 4 && !isGeneratedCode) {
         try {
-          const response = await fetch(`http://localhost:8000/api/session/${sessionCode}`);
+          const response = await fetch(`https://gamerc0der-http.hf.space/api/session/${sessionCode}`);
           const data = await response.json();
           setSessionExists(data.exists);
           setHasCheckedSession(true);
@@ -231,7 +231,7 @@ export default function Home() {
     setIsGeneratedCode(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/session', {
+      const response = await fetch('https://gamerc0der-http.hf.space/api/session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -328,14 +328,14 @@ export default function Home() {
 
   const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && sessionCode.length === 4) {
-      const response = await fetch(`http://localhost:8000/api/session/${sessionCode}`);
+      const response = await fetch(`https://gamerc0der-http.hf.space/api/session/${sessionCode}`);
       const data = await response.json();
 
       if (data.exists) {
         setMessages([{ content: `${username} joined the chat` }]);
         router.push(`/?code=${sessionCode}&uuid=${userUuid}`);
       } else {
-        const createResponse = await fetch('http://localhost:8000/api/session', {
+        const createResponse = await fetch('https://gamerc0der-http.hf.space/api/session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
