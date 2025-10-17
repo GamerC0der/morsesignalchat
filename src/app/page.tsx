@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
-import { Send, Radio, Copy, Check, ArrowLeft, Reply } from 'lucide-react';
+import { Send, Radio, Copy, Check, ArrowLeft, Reply, Users } from 'lucide-react';
 
 const morseCodeMap: { [key: string]: string } = {
   'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
@@ -509,10 +509,11 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-8" style={{ backgroundColor: 'rgb(25, 24, 36)' }}>
-      <h1 className="text-4xl font-bold text-white">ChatS</h1>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'rgb(25, 24, 36)' }}>
+      <div className="flex-grow flex flex-col items-center justify-center gap-8">
+        <h1 className="text-4xl font-bold text-white">ChatS</h1>
 
-      <div className="transition-opacity duration-500 opacity-100">
+        <div className="transition-opacity duration-500 opacity-100">
         <input
           type="text"
           value={sessionCode}
@@ -541,19 +542,30 @@ export default function Home() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 max-w-4xl">
         <div className="bg-white/5 border border-white/20 rounded-xl p-6 text-center hover:bg-white/10 hover:border-white/30 transition-all duration-300 hover:scale-105">
+          <Users size={48} className="text-white/60 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-white mb-3">Peer-to-Peer</h3>
           <p className="text-white/70 text-sm leading-relaxed">Connect directly to other computers.</p>
         </div>
 
         <div className="bg-white/5 border border-white/20 rounded-xl p-6 text-center hover:bg-white/10 hover:border-white/30 transition-all duration-300 hover:scale-105">
+          <Radio size={48} className="text-white/60 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-white mb-3">Morse Code</h3>
           <p className="text-white/70 text-sm leading-relaxed">Optionally encrypt your messages with morse code for fun!</p>
         </div>
 
         <div className="bg-white/5 border border-white/20 rounded-xl p-6 text-center hover:bg-white/10 hover:border-white/30 transition-all duration-300 hover:scale-105">
+          <Reply size={48} className="text-white/60 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-white mb-3">Replies</h3>
           <p className="text-white/70 text-sm leading-relaxed">Reply to specific messages in conversations</p>
         </div>
+      </div>
+      </div>
+
+      <div className="text-center pb-4">
+        
+        <p className="text-white/40 text-xs">
+          © 2025 ChatS. All rights reserved.
+        </p>
       </div>
     </div>
   );
