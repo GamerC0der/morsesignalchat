@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import { Send, Radio, Copy, Check, ArrowLeft, Reply } from 'lucide-react';
-import Peer from 'peerjs';
 
 const morseCodeMap: { [key: string]: string } = {
   'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
@@ -21,16 +20,14 @@ const morseCodeMap: { [key: string]: string } = {
   ';': '-.-.-.', '@': '.--.-.'
 };
 
-const encodeToMorse = (text: string): string => {
-  return text.toUpperCase().split('').map(char => morseCodeMap[char] || char).join(' ');
-};
+const encodeToMorse = (text: string): string =>
+  text.toUpperCase().split('').map(char => morseCodeMap[char] || char).join(' ');
 
 const decodeFromMorse = (morse: string): string => {
   const reverseMap: { [key: string]: string } = {};
   Object.entries(morseCodeMap).forEach(([char, code]) => {
     reverseMap[code] = char;
   });
-
   return morse.split(' ').map(code => reverseMap[code] || code).join('');
 };
 
@@ -43,16 +40,8 @@ const isMorseCode = (text: string): boolean => {
 export default function Home() {
   const generateUsername = () => {
     const rand = Math.random() * 100;
-    let animal = 'Blahaj';
-
-    if (rand < 50) {
-      animal = 'Blahaj';
-    } else if (rand < 80) {
-      animal = 'Djungelskog';
-    } else {
-      animal = 'Blavingad';
-    }
-
+    const animals = ['Blahaj', 'Djungelskog', 'Blavingad'];
+    const animal = rand < 50 ? animals[0] : rand < 80 ? animals[1] : animals[2];
     const numbers = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     return `Anonymous${animal}${numbers}`;
   };
@@ -77,120 +66,99 @@ export default function Home() {
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteSuggestions] = useState(['/morse']);
 
-  const peerRef = useRef<any>(null);
-  const connectionsRef = useRef<Map<string, any>>(new Map());
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const initializePeerJS = async (sessionCode: string, isHost: boolean) => {
-    cleanupConnections();
+  const resetState = () => {
+    setIsInChat(false);
+    setChatCode('');
+    setChatUuid('');
+    setIsGeneratedCode(false);
+    setSessionExists(false);
+    setHasCheckedSession(false);
+    setSessionCode('');
+    setMessages([]);
+    setReplyingTo(null);
+  };
 
-    const peer = new (Peer as any)(isHost ? sessionCode : undefined);
+  const initializeEventSource = async (sessionCode: string) => {
+    cleanupEventSource();
 
-    peerRef.current = peer;
+    const es = new EventSource(`http://localhost:8000/api/events/${sessionCode}/${userUuid}`);
 
-    peer.on('open', (id: any) => {
-      if (!isHost) {
-        const conn = peer.connect(sessionCode);
-        setupConnection(conn);
+    eventSourceRef.current = es;
+
+    es.onopen = () => {
+      console.log('EventSource connected');
+    };
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleEventSourceMessage(data);
+      } catch (error) {
+        console.error('Failed to parse event source message:', error);
       }
-    });
+    };
 
-    peer.on('connection', (conn: any) => {
-      setupConnection(conn);
-    });
-
-    peer.on('error', (err: any) => {});
-
-    const setupConnection = (conn: any) => {
-      connectionsRef.current.set(conn.peer, conn);
-
-      conn.on('open', () => {
-        setConnectedPeers(prev => [...prev, conn.peer]);
-
-        sendDataToPeer(conn.peer, {
-          type: 'join',
-          username: username,
-          peerId: userUuid
-        });
-      });
-
-      conn.on('data', (data: any) => {
-        try {
-          const message = JSON.parse(data as string);
-          handlePeerMessage(message);
-        } catch (error) {
-          console.error('Failed to parse message:', error);
-        }
-      });
-
-      conn.on('close', () => {
-        console.log('Connection closed with:', conn.peer);
-        setConnectedPeers(prev => prev.filter(p => p !== conn.peer));
-        connectionsRef.current.delete(conn.peer);
-      });
-
-      conn.on('error', (err: any) => {
-        console.error('Connection error:', err);
-      });
+    es.onerror = (error) => {
+      console.error('EventSource error:', error);
+      setConnectedPeers([]);
     };
   };
 
-  const cleanupConnections = () => {
-    connectionsRef.current.forEach((conn, peerId) => {
-      if (conn.open) {
-        sendDataToPeer(peerId, {
-          type: 'leave',
-          username: username,
-          peerId: userUuid
-        });
-      }
-      conn.close();
-    });
-
-    connectionsRef.current.clear();
-    setConnectedPeers([]);
-
-    if (peerRef.current) {
-      peerRef.current.destroy();
-      peerRef.current = null;
+  const cleanupEventSource = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
+    setConnectedPeers([]);
   };
 
-  const handlePeerMessage = (data: any) => {
-    if (data.type === 'join') {
-      if (data.peerId !== userUuid) {
-        setMessages(prev => [...prev, { content: `${data.username} joined the chat` }]);
+  const handleEventSourceMessage = (data: any) => {
+    if (data.type === 'joined_session') {
+      console.log(`Joined session ${data.session_code} with ${data.client_count} clients`);
+    } else if (data.type === 'user_joined') {
+      if (data.client_id !== userUuid) {
+        setMessages(prev => [...prev, { content: `Someone joined the chat` }]);
       }
-    } else if (data.type === 'leave') {
-      if (data.peerId !== userUuid) {
-        setMessages(prev => [...prev, { content: `${data.username} left the chat` }]);
+    } else if (data.type === 'user_left') {
+      if (data.client_id !== userUuid) {
+        setMessages(prev => [...prev, { content: `Someone left the chat` }]);
       }
     } else if (data.type === 'message') {
-      if (data.peerId !== userUuid) {
+      if (data.client_id !== userUuid) {
         const newMessage = {
-          content: `${data.username}: ${data.message}`,
-          ...(data.replyTo && { replyTo: data.replyTo })
+          content: `${data.username}: ${data.content}`,
+          timestamp: data.timestamp
         };
         setMessages(prev => [...prev, newMessage]);
       }
+    } else if (data.type === 'error') {
+      console.error('WebSocket error:', data.message);
+    } else if (data.type === 'session_expired') {
+      console.log('Session expired:', data.session_code);
+      setMessages(prev => [...prev, { content: 'Session has expired' }]);
     }
   };
 
-  const sendDataToPeer = (peerId: string, data: any) => {
-    const conn = connectionsRef.current.get(peerId);
-    if (conn && conn.open) {
-      conn.send(JSON.stringify(data));
+  const broadcastMessage = async (message: any) => {
+    try {
+      await fetch('http://localhost:8000/api/message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...message,
+          username: username
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to send message:', error);
     }
-  };
-
-  const broadcastMessage = (message: any) => {
-    connectionsRef.current.forEach((conn, peerId) => {
-      if (conn.open) {
-        conn.send(JSON.stringify(message));
-      }
-    });
   };
 
   useEffect(() => {
@@ -198,16 +166,15 @@ export default function Home() {
     const uuid = searchParams.get('uuid');
 
     if (code && uuid) {
-      fetch(`/api/sessions?code=${code}`)
+      fetch(`http://localhost:8000/api/session/${code}`)
         .then(response => response.json())
         .then(data => {
-          if (data.exists && data.peer_uuid === uuid) {
+          if (data.exists) {
             setIsInChat(true);
             setChatCode(code);
             setChatUuid(uuid);
             setMessages([{ content: `${username} joined the chat` }]);
-            const isHost = uuid === userUuid;
-            initializePeerJS(code, isHost);
+            initializeEventSource(code);
           } else {
             router.push('/');
           }
@@ -220,7 +187,7 @@ export default function Home() {
 
   useEffect(() => {
     return () => {
-      cleanupConnections();
+      cleanupEventSource();
     };
   }, [username]);
 
@@ -228,7 +195,7 @@ export default function Home() {
     const checkSessionExists = async () => {
       if (sessionCode.length === 4 && !isGeneratedCode) {
         try {
-          const response = await fetch(`/api/sessions?code=${sessionCode}`);
+          const response = await fetch(`http://localhost:8000/api/session/${sessionCode}`);
           const data = await response.json();
           setSessionExists(data.exists);
           setHasCheckedSession(true);
@@ -246,28 +213,12 @@ export default function Home() {
   }, [sessionCode, isGeneratedCode]);
 
   const generateRandomCode = () => {
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const numbers = '0123456789';
-    const alphanumeric = letters + numbers;
-
-    const positions = [0, 1, 2, 3];
-    const shuffled = positions.sort(() => Math.random() - 0.5);
-
-    const letterPos = shuffled[0];
-    const numberPos = shuffled[1];
-
-    let code = '';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
     for (let i = 0; i < 4; i++) {
-      if (i === letterPos) {
-        code += letters[Math.floor(Math.random() * letters.length)];
-      } else if (i === numberPos) {
-        code += numbers[Math.floor(Math.random() * numbers.length)];
-      } else {
-        code += alphanumeric[Math.floor(Math.random() * alphanumeric.length)];
-      }
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-
-    return code;
+    return result;
   };
 
 
@@ -280,17 +231,19 @@ export default function Home() {
     setIsGeneratedCode(true);
 
     try {
-      const response = await fetch('/api/sessions', {
+      const response = await fetch('http://localhost:8000/api/session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ code, peerUuid: userUuid }),
+        body: JSON.stringify({ client_id: userUuid }),
       });
 
       if (response.ok) {
+        const data = await response.json();
+        const actualCode = data.session_code;
         setMessages([{ content: `${username} joined the chat` }]);
-        router.push(`/?code=${code}&uuid=${userUuid}`);
+        router.push(`/?code=${actualCode}&uuid=${userUuid}`);
       } else {
         setIsGeneratedCode(false);
         setIsCreating(false);
@@ -315,7 +268,7 @@ export default function Home() {
     setCurrentTimeouts(newTimeouts);
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (currentMessage.trim()) {
       const messageToSend = isMorseEnabled ? encodeToMorse(currentMessage.trim()) : currentMessage.trim();
 
@@ -326,12 +279,10 @@ export default function Home() {
 
       setMessages(prev => [...prev, newMessage]);
 
-      broadcastMessage({
-        type: 'message',
-        username: username,
-        peerId: userUuid,
-        message: messageToSend,
-        replyTo: replyingTo || undefined
+      await broadcastMessage({
+        client_id: userUuid,
+        content: messageToSend,
+        session_code: chatCode
       });
 
       setCurrentMessage('');
@@ -377,24 +328,25 @@ export default function Home() {
 
   const handleKeyPress = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && sessionCode.length === 4) {
-      const response = await fetch(`/api/sessions?code=${sessionCode}`);
+      const response = await fetch(`http://localhost:8000/api/session/${sessionCode}`);
       const data = await response.json();
 
       if (data.exists) {
         setMessages([{ content: `${username} joined the chat` }]);
-        router.push(`/?code=${sessionCode}&uuid=${data.peer_uuid}`);
+        router.push(`/?code=${sessionCode}&uuid=${userUuid}`);
       } else {
-        const createResponse = await fetch('/api/sessions', {
+        const createResponse = await fetch('http://localhost:8000/api/session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ code: sessionCode, peerUuid: userUuid }),
+          body: JSON.stringify({ client_id: userUuid }),
         });
 
         if (createResponse.ok) {
+          const createData = await createResponse.json();
           setMessages([{ content: `${username} joined the chat` }]);
-          router.push(`/?code=${sessionCode}&uuid=${userUuid}`);
+          router.push(`/?code=${createData.session_code}&uuid=${userUuid}`);
         }
       }
     }
@@ -409,17 +361,8 @@ export default function Home() {
         <div className="absolute top-4 right-4">
           <button
             onClick={() => {
-              cleanupConnections();
-
-              setIsInChat(false);
-              setChatCode('');
-              setChatUuid('');
-              setIsGeneratedCode(false);
-              setSessionExists(false);
-              setHasCheckedSession(false);
-              setSessionCode('');
-              setMessages([]);
-              setReplyingTo(null);
+              cleanupEventSource();
+              resetState();
               router.push('/');
             }}
             className="text-white/60 hover:text-white transition-colors duration-200 text-sm flex items-center gap-1"
@@ -430,7 +373,7 @@ export default function Home() {
         </div>
         <div className="flex items-center justify-center h-screen">
           <div className="w-[48rem] h-[37.5rem] border border-white/20 rounded-lg bg-transparent flex flex-col">
-            <div className="flex-1 p-4 overflow-y-auto">
+            <div className="flex-1 p-4 overflow-y-auto chat-scroll">
               {messages.map((message, index) => {
                 const messageParts = message.content.split(': ');
                 const sender = messageParts[0];
@@ -567,7 +510,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-8" style={{ backgroundColor: 'rgb(25, 24, 36)' }}>
-      <h1 className="text-4xl font-bold text-white">MorseSignalChat</h1>
+      <h1 className="text-4xl font-bold text-white">ChatS</h1>
 
       <div className="transition-opacity duration-500 opacity-100">
         <input
@@ -607,9 +550,9 @@ export default function Home() {
           <p className="text-white/70 text-sm leading-relaxed">Optionally encrypt your messages with morse code for fun!</p>
         </div>
 
-        <div className="bg-white/3 border border-white/10 rounded-xl p-6 text-center hover:bg-white/5 hover:border-white/20 transition-all duration-300 hover:scale-105 opacity-60">
-          <h3 className="text-xl font-semibold text-white mb-3">...</h3>
-          <p className="text-white/50 text-sm leading-relaxed">Coming Soon...</p>
+        <div className="bg-white/5 border border-white/20 rounded-xl p-6 text-center hover:bg-white/10 hover:border-white/30 transition-all duration-300 hover:scale-105">
+          <h3 className="text-xl font-semibold text-white mb-3">Replies</h3>
+          <p className="text-white/70 text-sm leading-relaxed">Reply to specific messages in conversations</p>
         </div>
       </div>
     </div>
