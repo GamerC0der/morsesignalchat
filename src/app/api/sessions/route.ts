@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     } else {
       return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
     }
-  } catch (error) {
+  } catch (_error) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
         exists: false
       });
     }
-  } catch (error) {
+  } catch (_error) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

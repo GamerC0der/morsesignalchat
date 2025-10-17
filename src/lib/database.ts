@@ -30,6 +30,10 @@ export interface Session {
   updated_at: string;
 }
 
+interface QueryResult {
+  affectedRows: number;
+}
+
 export async function createOrUpdateSession(code: string, peerUuid: string): Promise<boolean> {
   try {
     const conn = await getConnection();
@@ -39,7 +43,7 @@ export async function createOrUpdateSession(code: string, peerUuid: string): Pro
       [code, peerUuid]
     );
     return true;
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 }
@@ -52,8 +56,8 @@ export async function getSessionByCode(code: string): Promise<Session | null> {
       'SELECT * FROM sessions WHERE code = ?',
       [code]
     );
-    return (rows as any[])[0] || null;
-  } catch (error) {
+    return (rows as Session[])[0] || null;
+  } catch (_error) {
     return null;
   }
 }
@@ -64,8 +68,8 @@ export async function cleanupExpiredSessions(): Promise<number> {
     const [result] = await conn.execute(
       "DELETE FROM sessions WHERE created_at < DATE_SUB(NOW(), INTERVAL 15 MINUTE)"
     );
-    return (result as any).affectedRows || 0;
-  } catch (error) {
+    return (result as QueryResult).affectedRows || 0;
+  } catch (_error) {
     return 0;
   }
 }
@@ -85,7 +89,7 @@ export async function getAllActiveSessions(): Promise<Session[]> {
       'SELECT * FROM sessions ORDER BY created_at DESC'
     );
     return rows as Session[];
-  } catch (error) {
+  } catch (_error) {
     return [];
   }
 }

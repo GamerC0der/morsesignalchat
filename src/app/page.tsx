@@ -1,9 +1,26 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import { Send, Radio, Copy, Check, ArrowLeft, Reply, Users } from 'lucide-react';
+
+interface EventSourceMessage {
+  type: string;
+  session_code?: string;
+  client_count?: number;
+  client_id?: string;
+  username?: string;
+  content?: string;
+  timestamp?: string;
+  message?: string;
+}
+
+interface BroadcastMessage {
+  client_id: string;
+  content: string;
+  session_code: string;
+}
 
 const morseCodeMap: { [key: string]: string } = {
   'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
@@ -37,7 +54,7 @@ const isMorseCode = (text: string): boolean => {
   return words.length > 0 && words.every(word => morseCodes.includes(word) || word === '');
 };
 
-export default function Home() {
+function Home() {
   const generateUsername = () => {
     const rand = Math.random() * 100;
     const animals = ['Blahaj', 'Djungelskog', 'Blavingad'];
@@ -52,13 +69,11 @@ export default function Home() {
   const [userUuid] = useState(() => uuidv4());
   const [isInChat, setIsInChat] = useState(false);
   const [chatCode, setChatCode] = useState('');
-  const [chatUuid, setChatUuid] = useState('');
   const [isGeneratedCode, setIsGeneratedCode] = useState(false);
   const [sessionExists, setSessionExists] = useState(false);
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
   const [messages, setMessages] = useState<{content: string, replyTo?: {sender: string, content: string}}[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
-  const [connectedPeers, setConnectedPeers] = useState<string[]>([]);
   const [username] = useState(() => generateUsername());
   const [isMorseEnabled, setIsMorseEnabled] = useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
@@ -74,7 +89,6 @@ export default function Home() {
   const resetState = () => {
     setIsInChat(false);
     setChatCode('');
-    setChatUuid('');
     setIsGeneratedCode(false);
     setSessionExists(false);
     setHasCheckedSession(false);
@@ -83,41 +97,14 @@ export default function Home() {
     setReplyingTo(null);
   };
 
-  const initializeEventSource = async (sessionCode: string) => {
-    cleanupEventSource();
-
-    const es = new EventSource(`https://gamerc0der-http.hf.space/api/events/${sessionCode}/${userUuid}`);
-
-    eventSourceRef.current = es;
-
-    es.onopen = () => {
-      console.log('EventSource connected');
-    };
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleEventSourceMessage(data);
-      } catch (error) {
-        console.error('Failed to parse event source message:', error);
-      }
-    };
-
-    es.onerror = (error) => {
-      console.error('EventSource error:', error);
-      setConnectedPeers([]);
-    };
-  };
-
   const cleanupEventSource = () => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    setConnectedPeers([]);
   };
 
-  const handleEventSourceMessage = (data: any) => {
+  const handleEventSourceMessage = useCallback((data: EventSourceMessage) => {
     if (data.type === 'joined_session') {
       console.log(`Joined session ${data.session_code} with ${data.client_count} clients`);
     } else if (data.type === 'user_joined') {
@@ -142,9 +129,34 @@ export default function Home() {
       console.log('Session expired:', data.session_code);
       setMessages(prev => [...prev, { content: 'Session has expired' }]);
     }
-  };
+  }, [userUuid]);
 
-  const broadcastMessage = async (message: any) => {
+  const initializeEventSource = useCallback(async (sessionCode: string) => {
+    cleanupEventSource();
+
+    const es = new EventSource(`https://gamerc0der-http.hf.space/api/events/${sessionCode}/${userUuid}`);
+
+    eventSourceRef.current = es;
+
+    es.onopen = () => {
+      console.log('EventSource connected');
+    };
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleEventSourceMessage(data);
+      } catch (error) {
+        console.error('Failed to parse event source message:', error);
+      }
+    };
+
+    es.onerror = (error) => {
+      console.error('EventSource error:', error);
+    };
+  }, [userUuid, handleEventSourceMessage]);
+
+  const broadcastMessage = async (message: BroadcastMessage) => {
     try {
       await fetch('https://gamerc0der-http.hf.space/api/message', {
         method: 'POST',
@@ -172,7 +184,6 @@ export default function Home() {
           if (data.exists) {
             setIsInChat(true);
             setChatCode(code);
-            setChatUuid(uuid);
             setMessages([{ content: `${username} joined the chat` }]);
             initializeEventSource(code);
           } else {
@@ -183,7 +194,7 @@ export default function Home() {
           router.push('/');
         });
     }
-  }, [searchParams, username, router]);
+  }, [searchParams, username, router, initializeEventSource]);
 
   useEffect(() => {
     return () => {
@@ -199,7 +210,7 @@ export default function Home() {
           const data = await response.json();
           setSessionExists(data.exists);
           setHasCheckedSession(true);
-        } catch (error) {
+        } catch (_error) {
           setSessionExists(false);
           setHasCheckedSession(true);
         }
@@ -440,7 +451,7 @@ export default function Home() {
               )}
               {showAutocomplete && (
                 <div className="mb-2 bg-white/10 border border-white/20 rounded-md overflow-hidden">
-                  {autocompleteSuggestions.map((suggestion, index) => (
+                  {autocompleteSuggestions.map((suggestion) => (
                     <div
                       key={suggestion}
                       className="px-3 py-2 text-white/80 hover:bg-white/20 cursor-pointer transition-colors duration-200 text-sm"
@@ -568,5 +579,13 @@ export default function Home() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <Home />
+    </Suspense>
   );
 }
