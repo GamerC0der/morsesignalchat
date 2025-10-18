@@ -5,6 +5,7 @@ export async function POST(request: NextRequest) {
   try {
     const { code, peerUuid } = await request.json();
 
+    console.log(code, peerUuid);
     if (!code || !peerUuid) {
       return NextResponse.json({ error: 'Missing code or peerUuid' }, { status: 400 });
     }
@@ -47,4 +48,5 @@ export async function GET(request: NextRequest) {
   } catch (_error) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+  
 }
