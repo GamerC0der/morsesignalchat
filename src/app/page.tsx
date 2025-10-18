@@ -5,6 +5,58 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import { Send, Radio, Copy, Check, ArrowLeft, Reply, Users } from 'lucide-react';
 
+interface ModalProps {
+  isOpen: boolean;
+  title: string;
+  description: string;
+  cancelText?: string;
+  confirmText: string;
+  confirmVariant?: 'primary' | 'danger';
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+const Modal: React.FC<ModalProps> = ({
+  isOpen,
+  title,
+  description,
+  cancelText = 'Cancel',
+  confirmText,
+  confirmVariant = 'primary',
+  onCancel,
+  onConfirm
+}) => {
+  if (!isOpen) return null;
+
+  const confirmButtonClasses = {
+    primary: 'px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors duration-200',
+    danger: 'px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors duration-200'
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-gray-800 border border-white/20 rounded-lg p-6 max-w-md mx-4">
+        <h3 className="text-lg font-semibold mb-4 text-white">{title}</h3>
+        <p className="text-white/70 mb-6">{description}</p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-white/60 hover:text-white transition-colors duration-200"
+          >
+            {cancelText}
+          </button>
+          <button
+            onClick={onConfirm}
+            className={confirmButtonClasses[confirmVariant]}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface EventSourceMessage {
   type: string;
   session_code?: string;
@@ -106,6 +158,7 @@ function Home() {
   const [autocompleteSuggestions] = useState(['/morse']);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkToOpen, setLinkToOpen] = useState('');
+  const [showBackModal, setShowBackModal] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -421,11 +474,7 @@ function Home() {
         </div>
         <div className="absolute top-4 right-4">
           <button
-            onClick={() => {
-              cleanupEventSource();
-              resetState();
-              router.push('/');
-            }}
+            onClick={() => setShowBackModal(true)}
             className="text-white/60 hover:text-white transition-colors duration-200 text-sm flex items-center gap-1"
           >
             <ArrowLeft size={14} />
@@ -573,33 +622,33 @@ function Home() {
           </div>
         </div>
 
-        {/* Link Confirmation Modal */}
-        {showLinkModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 border border-white/20 rounded-lg p-6 max-w-md mx-4">
-              <h3 className="text-lg font-semibold mb-4 text-white">Confirm Navigation</h3>
-              <p className="text-white/70 mb-2">You are about to open this link:</p>
-              <p className="text-blue-400 break-all mb-6 font-mono text-sm">{linkToOpen}</p>
-              <div className="flex gap-3 justify-end">
-                <button
-                  onClick={() => setShowLinkModal(false)}
-                  className="px-4 py-2 text-white/60 hover:text-white transition-colors duration-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    window.open(linkToOpen, '_blank');
-                    setShowLinkModal(false);
-                  }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors duration-200"
-                >
-                  Open Link
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <Modal
+          isOpen={showLinkModal}
+          title="Confirm Navigation"
+          description={`You are about to open this link: ${linkToOpen}`}
+          confirmText="Open Link"
+          confirmVariant="primary"
+          onCancel={() => setShowLinkModal(false)}
+          onConfirm={() => {
+            window.open(linkToOpen, '_blank');
+            setShowLinkModal(false);
+          }}
+        />
+
+        <Modal
+          isOpen={showBackModal}
+          title="Leave Chat?"
+          description="Are you sure you want to leave this chat session? You will need the session code to rejoin."
+          confirmText="Leave Chat"
+          confirmVariant="danger"
+          onCancel={() => setShowBackModal(false)}
+          onConfirm={() => {
+            cleanupEventSource();
+            resetState();
+            router.push('/');
+            setShowBackModal(false);
+          }}
+        />
       </div>
     );
   }
