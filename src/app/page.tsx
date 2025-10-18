@@ -57,6 +57,27 @@ const isMorseCode = (text: string): boolean => {
   return words.length > 0 && words.every(word => morseCodes.includes(word) || word === '');
 };
 
+const formatRelativeTime = (timestamp: string): string => {
+  const now = new Date();
+  const messageTime = new Date(timestamp);
+  const diffInSeconds = Math.floor((now.getTime() - messageTime.getTime()) / 1000);
+
+  if (diffInSeconds < 10) {
+    return 'Just now';
+  } else if (diffInSeconds < 60) {
+    return `${diffInSeconds} second${diffInSeconds > 1 ? 's' : ''} ago`;
+  } else if (diffInSeconds < 3600) {
+    const minutes = Math.floor(diffInSeconds / 60);
+    return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+  } else if (diffInSeconds < 86400) {
+    const hours = Math.floor(diffInSeconds / 3600);
+    return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  } else {
+    const days = Math.floor(diffInSeconds / 86400);
+    return `${days} day${days > 1 ? 's' : ''} ago`;
+  }
+};
+
 function Home() {
   const generateUsername = () => {
     const rand = Math.random() * 100;
@@ -75,7 +96,7 @@ function Home() {
   const [isGeneratedCode, setIsGeneratedCode] = useState(false);
   const [sessionExists, setSessionExists] = useState(false);
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
-  const [messages, setMessages] = useState<{content: string, replyTo?: {sender: string, content: string}}[]>([]);
+  const [messages, setMessages] = useState<{content: string, timestamp?: string, replyTo?: {sender: string, content: string}}[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
   const [username] = useState(() => generateUsername());
   const [isMorseEnabled, setIsMorseEnabled] = useState(false);
@@ -112,17 +133,17 @@ function Home() {
       console.log(`Joined session ${data.session_code} with ${data.client_count} clients`);
     } else if (data.type === 'user_joined') {
       if (data.client_id !== userUuid) {
-        setMessages(prev => [...prev, { content: `Someone joined the chat` }]);
+        setMessages(prev => [...prev, { content: `Someone joined the chat`, timestamp: new Date().toISOString() }]);
       }
     } else if (data.type === 'user_left') {
       if (data.client_id !== userUuid) {
-        setMessages(prev => [...prev, { content: `Someone left the chat` }]);
+        setMessages(prev => [...prev, { content: `Someone left the chat`, timestamp: new Date().toISOString() }]);
       }
     } else if (data.type === 'message') {
       if (data.client_id !== userUuid) {
         const newMessage = {
           content: `${data.username}: ${data.content}`,
-          timestamp: data.timestamp
+          timestamp: data.timestamp || new Date().toISOString()
         };
         setMessages(prev => [...prev, newMessage]);
       }
@@ -130,7 +151,7 @@ function Home() {
       console.error('WebSocket error:', data.message);
     } else if (data.type === 'session_expired') {
       console.log('Session expired:', data.session_code);
-      setMessages(prev => [...prev, { content: 'Session has expired' }]);
+      setMessages(prev => [...prev, { content: 'Session has expired', timestamp: new Date().toISOString() }]);
     }
   }, [userUuid]);
 
@@ -187,7 +208,7 @@ function Home() {
           if (data.exists) {
             setIsInChat(true);
             setChatCode(code);
-            setMessages([{ content: `${username} joined the chat` }]);
+            setMessages([{ content: `${username} joined the chat`, timestamp: new Date().toISOString() }]);
             initializeEventSource(code);
           } else {
             router.push('/');
@@ -256,7 +277,7 @@ function Home() {
       if (response.ok) {
         const data = await response.json();
         const actualCode = data.session_code;
-        setMessages([{ content: `${username} joined the chat` }]);
+        setMessages([{ content: `${username} joined the chat`, timestamp: new Date().toISOString() }]);
         router.push(`/?code=${actualCode}&uuid=${userUuid}`);
       } else {
         setIsGeneratedCode(false);
@@ -288,6 +309,7 @@ function Home() {
 
       const newMessage = {
         content: `${username}: ${messageToSend}`,
+        timestamp: new Date().toISOString(),
         ...(replyingTo && { replyTo: { sender: replyingTo.sender, content: replyingTo.content } })
       };
 
@@ -336,7 +358,7 @@ function Home() {
     }
   };
 
-  const editMessage = (index: number, newMessage: {content: string, replyTo?: {sender: string, content: string}}) => {
+  const editMessage = (index: number, newMessage: {content: string, timestamp?: string, replyTo?: {sender: string, content: string}}) => {
     setMessages(prev => prev.map((msg, i) => i === index ? newMessage : msg));
   };
 
@@ -346,7 +368,7 @@ function Home() {
       const data = await response.json();
 
       if (data.exists) {
-        setMessages([{ content: `${username} joined the chat` }]);
+        setMessages([{ content: `${username} joined the chat`, timestamp: new Date().toISOString() }]);
         router.push(`/?code=${sessionCode}&uuid=${userUuid}`);
       } else {
         const createResponse = await fetch('https://gamerc0der-http.hf.space/api/session', {
@@ -359,7 +381,7 @@ function Home() {
 
         if (createResponse.ok) {
           const createData = await createResponse.json();
-          setMessages([{ content: `${username} joined the chat` }]);
+          setMessages([{ content: `${username} joined the chat`, timestamp: new Date().toISOString() }]);
           router.push(`/?code=${createData.session_code}&uuid=${userUuid}`);
         }
       }
@@ -403,7 +425,14 @@ function Home() {
                         Replying to <span className="font-semibold">{message.replyTo.sender}</span>: {message.replyTo.content.length > 50 ? `${message.replyTo.content.substring(0, 50)}...` : message.replyTo.content}
                       </div>
                     )}
-                    <div>{message.content}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="flex-1">{message.content}</span>
+                      {message.timestamp && (
+                        <span className="text-white/40 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          {formatRelativeTime(message.timestamp)}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                         <button
                           onClick={() => setReplyingTo({ index, content, sender })}
@@ -425,7 +454,7 @@ function Home() {
                         </button>
                         {isMorseCode(content) && (
                           <button
-                            onClick={() => editMessage(index, { content: `${sender}: ${decodeFromMorse(content)}`, replyTo: message.replyTo })}
+                            onClick={() => editMessage(index, { content: `${sender}: ${decodeFromMorse(content)}`, timestamp: message.timestamp, replyTo: message.replyTo })}
                             className="p-1 rounded bg-white/10 hover:bg-white/20 transition-colors duration-200 text-white/60 hover:text-white"
                             title="Translate from Morse code"
                           >
@@ -491,8 +520,8 @@ function Home() {
                     setCurrentMessage(value);
                     setShowAutocomplete(value === '/');
                   }}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {  
                       if (showAutocomplete && currentMessage === '/morse') {
                         setIsMorseEnabled(!isMorseEnabled);
                         setCurrentMessage('');
