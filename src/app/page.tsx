@@ -104,11 +104,36 @@ function Home() {
   const [replyingTo, setReplyingTo] = useState<{index: number, content: string, sender: string} | null>(null);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteSuggestions] = useState(['/morse']);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkToOpen, setLinkToOpen] = useState('');
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const parseLinks = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, index) => {
+      if (urlRegex.test(part)) {
+        return (
+          <button
+            key={index}
+            onClick={() => {
+              setLinkToOpen(part);
+              setShowLinkModal(true);
+            }}
+            className="text-blue-400 hover:text-blue-300 underline break-all"
+          >
+            {part}
+          </button>
+        );
+      }
+      return part;
+    });
+  };
 
   const resetState = () => {
     setIsInChat(false);
@@ -426,8 +451,8 @@ function Home() {
                       </div>
                     )}
                     <div className="flex items-center gap-2">
-                      <span className="flex-1">{message.content}</span>
-                      {message.timestamp && (
+                      <span className="flex-1">{parseLinks(message.content)}</span>
+                      {message.timestamp && !message.content.includes('joined the chat') && (
                         <span className="text-white/40 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                           {formatRelativeTime(message.timestamp)}
                         </span>
@@ -547,6 +572,34 @@ function Home() {
             </div>
           </div>
         </div>
+
+        {/* Link Confirmation Modal */}
+        {showLinkModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 border border-white/20 rounded-lg p-6 max-w-md mx-4">
+              <h3 className="text-lg font-semibold mb-4 text-white">Confirm Navigation</h3>
+              <p className="text-white/70 mb-2">You are about to open this link:</p>
+              <p className="text-blue-400 break-all mb-6 font-mono text-sm">{linkToOpen}</p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowLinkModal(false)}
+                  className="px-4 py-2 text-white/60 hover:text-white transition-colors duration-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    window.open(linkToOpen, '_blank');
+                    setShowLinkModal(false);
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors duration-200"
+                >
+                  Open Link
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
