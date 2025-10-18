@@ -641,6 +641,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
                 <input
                   type="text"
                   value={currentMessage}
+                  maxLength={200}
                   onChange={(e) => {
                     const value = e.target.value;
                     setCurrentMessage(value);
