@@ -67,6 +67,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
   const [hasNotificationPermission, setHasNotificationPermission] = useState(false);
   const [awayTimer, setAwayTimer] = useState<NodeJS.Timeout | null>(null);
   const [lastMessageCount, setLastMessageCount] = useState(0);
+  const [eventSourceInitialized, setEventSourceInitialized] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -111,6 +112,8 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
     setSessionCode('');
     setMessages([]);
     setReplyingTo(null);
+    setEventSourceInitialized(false);
+    cleanupEventSource();
   };
 
   const cleanupEventSource = () => {
@@ -118,6 +121,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
+    setEventSourceInitialized(false);
   };
 
   const handleEventSourceMessage = useCallback((data: EventSourceMessage) => {
@@ -189,11 +193,16 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
   }, [userUuid, isTabVisible, hasNotificationPermission]);
 
   const initializeEventSource = useCallback(async (sessionCode: string) => {
+    if (eventSourceRef.current || eventSourceInitialized) {
+      return;
+    }
+
     cleanupEventSource();
 
     const es = new EventSource(`https://gamerc0der-http.hf.space/api/events/${sessionCode}/${userUuid}`);
 
     eventSourceRef.current = es;
+    setEventSourceInitialized(true);
 
     es.onopen = () => {
       console.log('EventSource connected');
@@ -211,7 +220,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
     es.onerror = (error) => {
       console.error('EventSource error:', error);
     };
-  }, [userUuid, handleEventSourceMessage]);
+  }, [userUuid, handleEventSourceMessage, eventSourceInitialized]);
 
   const broadcastMessage = async (message: BroadcastMessage) => {
     try {
@@ -297,7 +306,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
     const code = searchParams.get('code');
     const uuid = searchParams.get('uuid');
 
-    if (code && uuid) {
+    if (code && uuid && !isInChat) {
       fetch(`https://gamerc0der-http.hf.space/api/session/${code}`)
         .then(response => response.json())
         .then(data => {
@@ -305,6 +314,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
             setIsInChat(true);
             setChatCode(code);
             setMessages([{ content: `${username} joined the chat`, timestamp: new Date().toISOString() }]);
+            setEventSourceInitialized(false);
             initializeEventSource(code);
           } else {
             router.push('/');
@@ -314,7 +324,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
           router.push('/');
         });
     }
-  }, [searchParams, username, router, initializeEventSource]);
+  }, [searchParams, username, router, initializeEventSource, isInChat]);
 
   useEffect(() => {
     return () => {
@@ -324,7 +334,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
 
   useEffect(() => {
     const checkSessionExists = async () => {
-      if (sessionCode.length === 4 && !isGeneratedCode) {
+      if (sessionCode.length === 4 && !isGeneratedCode && !isInChat) {
         try {
           const response = await fetch(`https://gamerc0der-http.hf.space/api/session/${sessionCode}`);
           const data = await response.json();
@@ -341,7 +351,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
     };
 
     checkSessionExists();
-  }, [sessionCode, isGeneratedCode]);
+  }, [sessionCode, isGeneratedCode, isInChat]);
 
   const generateRandomCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -487,12 +497,12 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
   }, [sessionCode, username, userUuid, router]);
 
   useEffect(() => {
-    if (externalSessionCode && externalSessionCode.length === 4 && externalSessionCode !== sessionCode) {
+    if (externalSessionCode && externalSessionCode.length === 4 && externalSessionCode !== sessionCode && !isInChat) {
       setSessionCode(externalSessionCode);
       onSessionCodeChange?.(externalSessionCode);
       handleKeyPress({ key: 'Enter' } as React.KeyboardEvent<HTMLInputElement>);
     }
-  }, [externalSessionCode, sessionCode, onSessionCodeChange, handleKeyPress]);
+  }, [externalSessionCode, sessionCode, onSessionCodeChange, handleKeyPress, isInChat]);
 
   if (isInChat) {
     return (
@@ -696,7 +706,6 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
           confirmVariant="danger"
           onCancel={() => setShowBackModal(false)}
           onConfirm={() => {
-            cleanupEventSource();
             resetState();
             router.push('/');
             setShowBackModal(false);
