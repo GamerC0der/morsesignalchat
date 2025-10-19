@@ -132,7 +132,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
         setMessages(prev => [...prev, { content: `Someone joined the chat`, timestamp: new Date().toISOString() }]);
 
         if (!isTabVisible && hasNotificationPermission && 'Notification' in window) {
-          const notification = new Notification('ChatS - User Joined', {
+          const notification = new Notification('MorseSignalChat - User Joined', {
             body: 'Someone joined the chat session',
             icon: '/favicon.ico',
             tag: 'chats-user-joined',
@@ -148,7 +148,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
         setMessages(prev => [...prev, { content: `Someone left the chat`, timestamp: new Date().toISOString() }]);
 
         if (!isTabVisible && hasNotificationPermission && 'Notification' in window) {
-          const notification = new Notification('ChatS - User Left', {
+          const notification = new Notification('MorseSignalChat - User Left', {
             body: 'Someone left the chat session',
             icon: '/favicon.ico',
             tag: 'chats-user-left',
@@ -171,7 +171,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
 
         // Show notification if tab is not visible and we have permission
         if (!isTabVisible && hasNotificationPermission && 'Notification' in window) {
-          const notification = new Notification('New ChatS Message', {
+          const notification = new Notification('New MorseSignalChat Message', {
             body: `${data.username}: ${data.content}`,
             icon: '/favicon.ico',
             tag: 'chats-message',
@@ -718,7 +718,7 @@ function Home({ sessionCode: externalSessionCode = '', onSessionCodeChange }: Ch
   // If not in chat, render the session code input for the landing page
   return (
     <div className="flex flex-col items-center gap-4">
-      <h1 className="text-4xl font-semibold text-white">ChatS</h1>
+      <h1 className="text-4xl font-semibold text-white">MorseSignalChat</h1>
       <input
       type="text"
       value={sessionCode}

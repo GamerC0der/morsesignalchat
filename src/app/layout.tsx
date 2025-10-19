@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ChatS",
+  title: "MorseSignalChat",
   description: "Secure peer-to-peer chat with Morse code encryption",
 };
 

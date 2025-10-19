@@ -221,6 +221,9 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
                 'session_code': session_code
             }
 
+            if 'replyTo' in data:
+                broadcast_message['replyTo'] = data['replyTo']
+
             for cid in sessions[session_code]['clients']:
                 if cid in clients and cid != client_id:
                     try:
@@ -273,7 +276,7 @@ def cleanup_sessions():
     if expired_sessions:
         print(f"Cleaned up {len(expired_sessions)} expired sessions")
 
-def run_server(port=8000, host='localhost'):
+def run_server(port=8000, host='0.0.0.0'):
     server_address = (host, port)
     httpd = ThreadingHTTPServer(server_address, SimpleHTTPRequestHandler)
     print(f"Server running on http://{host}:{port}")
